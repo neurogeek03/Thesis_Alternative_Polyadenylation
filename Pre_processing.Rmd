@@ -1,0 +1,230 @@
+---
+title: "Pre-processing_update"
+author: "Marlen"
+date: "3/1/2024"
+output: html_document
+---
+```{r}
+#This file will repeat all the steps that I did to preprocess the QAPA output data 
+library(readr)
+library(tidyverse)
+library(dplyr)
+```
+
+```{r}
+#We have the data without all those stupid NA values that I made before and we can now filter the TPM 
+#We choose to filter per UTR isoform, as the Morris paper does 
+```
+
+```{r}
+data_full <- read.csv("/external/rprshnas01/netdata_kcni/stlab/Collaborators/SFARI/out_m2/data/QAPA_MF_renamed.csv", sep=",", header=TRUE)
+```
+
+#Creating a score table that counts low TPM rowwise
+```{r}
+#Let's check the distribution once again before we cut 
+tpm <- data_full %>% 
+  dplyr::select (APA_ID, ends_with("TPM")) 
+
+# Function to replace values with 0 or 1 based on whether they are larger or smaller than 3
+#MEANING =>  everything that has a value of 1 is BELOW 3 TPM 
+replace_with_binary <- function(x) {
+  as.numeric(x < 3)
+}
+
+# Apply the function to each column
+tpm_f <- cbind(tpm, sapply(data_full, replace_with_binary))
+
+#Defining binary columns
+binary_c <- sapply(tpm_f, function(col) all(col %in% c(0, 1)))
+
+#Keeping only desired columns 
+score_table <- tpm_f %>% 
+  dplyr::select(which(binary_c)) %>% 
+  dplyr::select (ends_with("TPM")) %>%
+  mutate(row_sum = rowSums(across(everything())))
+```
+
+#Evaluating how the score table looks like 
+```{r}
+unique(score_table$row_sum) #0 15 12  1  4  3 10 14 11  5  6  9  2 13  8  7
+#We have 15 samples 
+
+sum(score_table$row_sum == 15) #15887 => appears in 1432 isoforms 
+
+nrow(score_table) #out of the 41857 in total 
+
+sum(score_table$row_sum <= 1)/nrow(score_table) #In 40% of our samples 
+```
+
+#Graphing TPM distribution
+```{r}
+#histogramming it up 
+png(file="/external/rprshnas01/netdata_kcni/stlab/Collaborators/SFARI/out_m2/Graphs/tpm_dist.png",
+width=900, height=500)
+
+hist(score_table$row_sum, col = "darkgreen", xlab = "TPM score sum for all samples", ylab = "Total number of APA isoforms", ylim = c(0, 36841), main = "Distribution of TPM below and above 3")
+text(x = 6, y = 30000, labels = "Samples < 3 have a score of 1 and samples > 3 a score of 0", col = "darkgreen")
+
+dev.off()
+
+```
+
+#Joining the score table to original data & filtering
+```{r}
+# Add row index as a column to both data frames
+score_t <- score_table %>% dplyr::select(row_sum) %>% mutate(row_index = row_number())
+data <- data_full %>% mutate(row_index = row_number())
+
+# Merge datasets based on row index
+merged_df <- merge(score_t, data, by = "row_index")
+
+# Remove the row index column
+merged_df <- merged_df %>% dplyr::select(-row_index)
+
+#Filtering 
+filtered_tpm_3 <- merged_df %>% 
+  filter(row_sum <= 1) #allowing only 1 samples to have low counts
+
+#Checking if I filtered correctly: 
+nrow(filtered_tpm_3)/nrow(data_full)
+#working with 51% of the data 
+
+write.csv(filtered_tpm_3, file = "/external/rprshnas01/netdata_kcni/stlab/Nuo/SFARI/out_m2/data/mf_filtered_tpm_3_1.csv", row.names = FALSE)
+```
+
+```{r}
+filtered_tpm_3 <- read.csv ("/external/rprshnas01/netdata_kcni/stlab/Nuo/SFARI/out_m2/data/mf_filtered_tpm_3_1.csv", sep = ",", header = TRUE )
+```
+
+#Lets keep only genes with two sites 
+```{r}
+QAPA_filtered <-read.csv("/external/rprshnas01/netdata_kcni/stlab/Nuo/SFARI/out_m2/data/mf_filtered_tpm_3_1.csv", header = TRUE, sep = ",")
+
+all_sites <- QAPA_filtered %>%
+  group_by(Gene) %>%
+  filter(
+    # If there's at least one P site
+    any(APA_site == "P") &
+    # Ensure there's at least one D site if there's a P site
+    any(APA_site == "D") |
+    # If there's an S site
+    any(APA_site == "S")
+  ) %>%
+  ungroup()
+
+
+write.csv(all_sites, file = "/external/rprshnas01/netdata_kcni/stlab/Nuo/SFARI/out_m2/data/sites_mf_filtered_tpm_3_1.csv", row.names = FALSE)
+```
+
+
+
+#Adding a separate column indicating the APA site 
+```{r}
+#We want to group by APA event which is different based on the transcript 
+#There can be multiple transcripts in a row so we want to extract the first one 
+
+extract_first <- function(column) {
+  elements <- strsplit(column, "_")
+  first_element <- sapply(elements, function(x) x[3])
+  return(first_element)
+}
+
+# Apply the function to the column
+filtered_tpm_3$APA_site <- extract_first(filtered_tpm_3$APA_ID)
+
+filtered_tpm_3 <- filtered_tpm_3 %>%relocate(APA_site) 
+
+```
+
+#Renaming timepoints 
+```{r}
+replacements <- list(
+  iPSC = 'd0',
+  NPC = 'd4',
+  CN = 'd30'
+)
+
+# Function to replace prefixes
+replace_prefix <- function(column_name, replacements) {
+  for (prefix in names(replacements)) {
+    if (grepl(paste0('^', prefix), column_name)) {
+      return(gsub(paste0('^', prefix), replacements[[prefix]], column_name))
+    }
+  }
+  return(column_name)
+}
+
+new_column_names <- sapply(names(filtered_tpm_3), replace_prefix, replacements)
+
+# Assign new column names to the data frame
+names(filtered_tpm_3) <- new_column_names
+
+write.csv(filtered_tpm_3, file = "/external/rprshnas01/netdata_kcni/stlab/Nuo/SFARI/out_m2/data/refiltered_tpm_3_1.csv", row.names = FALSE)
+```
+
+#OTHER STUFF
+```{r}
+#Okay these are a lot of samples.. Lets try changing the TPM threshold and the number of samples that have high values to see
+# a. how many rows we are removing 
+# b. how the figure looks
+
+tpm <- data_full %>% 
+  dplyr::select (APA_ID, ends_with("TPM")) 
+
+# Function to replace values with 0 or 1 based on whether they are larger or smaller than 3
+#MEANING =>  everything that has a value of 1 is BELOW 3 TPM 
+replace_with_binary <- function(x) {
+  ifelse(x < 2, 1, 0)
+}
+
+# Apply the function to each column
+tpm_f <- cbind(tpm, sapply(data_full, replace_with_binary))
+
+#Defining binary columns
+binary_c <- sapply(tpm_f, function(col) all(col %in% c(0, 1))) 
+
+#Keeping only desired columns 
+score_table <- tpm_f %>% 
+  dplyr::select(which(binary_c)) %>% 
+  dplyr::select (ends_with("TPM")) %>%
+  mutate(row_sum = rowSums(across(everything())))
+
+hist(score_table$row_sum, col = "darkgreen", xlab = "TPM score sum for all samples", ylab = "Total number of APA isoforms", ylim = c(0, 36841), main = "Distribution of TPM below and above 3")
+text(x = 6, y = 30000, labels = "Samples < 3 have a score of 1 and samples > 3 a score of 0", col = "darkgreen")
+
+#b ROWS 
+sum(score_table$row_sum <=1)/nrow(score_table)
+
+
+#b Figure 
+```
+
+```{r}
+# write.csv(filtered_tpm_3_1, file = "/external/rprshnas01/netdata_kcni/stlab/Nuo/SFARI/out_m2/data/filtered_tpm_3_1_transcript.csv", row.names = FALSE)
+
+APA_events_grouped <- filtered_tpm_3_1 %>% 
+  dplyr:: select (-APA_ID) %>% 
+  relocate (first_element) %>% 
+  group_by(first_element) %>% 
+  mutate (UTRs_per_event = row_number()) %>% #This numbers how many UTRs per event. But if we filter now for UTRs > 1 we lose the 1st UTR from all rows 
+  relocate (UTRs_per_event) %>% 
+  mutate (sum_utr = sum(UTRs_per_event)) %>%
+  relocate (sum_utr) %>%
+  filter (sum_utr > 1) %>% ungroup()
+
+nrow(APA_events_grouped)/12821
+
+unique(APA_events_grouped$sum_utr) #1  6  3 10 21 28 15 36
+
+sum(APA_events_grouped$UTRs_per_event==1)/nrow(APA_events_grouped) #0.6773264
+
+#A lot of samples have 1 isoform, but we will remove them for now. 
+
+filtered_UTRs_above1 <- APA_events_grouped %>% 
+  dplyr::select(-sum_utr, -first_element) %>%
+  dplyr::select(-row_sum, -UTRs_per_event, everything())
+
+write.csv(filtered_UTRs_above1, file = "/external/rprshnas01/netdata_kcni/stlab/Nuo/SFARI/out_m2/data/filtered_UTRs_above1_new.csv", row.names = FALSE)
+```
+
