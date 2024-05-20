@@ -1,0 +1,56 @@
+---
+title: "Processing_QAPA_names"
+author: "Marlen"
+date: "4/4/2024"
+output: html_document
+---
+# CHANGE: Specify file name here 
+```{r}
+qapa_out<- read.table("/external/rprshnas01/netdata_kcni/stlab/Collaborators/SFARI/out_m2/data/pau_results_MF.txt", sep = "\t", header = TRUE)
+```
+
+# RUN: Adding a separate column indicating the APA site 
+```{r}
+extract_first <- function(column) {
+  elements <- strsplit(column, "_")
+  first_element <- sapply(elements, function(x) x[3])
+  return(first_element)
+}
+
+# Apply the function to the column
+qapa_out$APA_site <- extract_first(qapa_out$APA_ID)
+
+qapa_out <- qapa_out %>%relocate(APA_site) 
+
+```
+
+# RUN: Renaming timepoints 
+```{r}
+replacements <- list(
+  iPSC = 'd0',
+  NPC = 'd4',
+  CN = 'd30'
+)
+
+# Function to replace prefixes
+replace_prefix <- function(column_name, replacements) {
+  for (prefix in names(replacements)) {
+    if (grepl(paste0('^', prefix), column_name)) {
+      return(gsub(paste0('^', prefix), replacements[[prefix]], column_name))
+    }
+  }
+  return(column_name)
+}
+
+new_column_names <- sapply(names(qapa_out), replace_prefix, replacements)
+
+# Assign new column names to the data frame
+names(qapa_out) <- new_column_names
+
+```
+
+# CHANGE: Name your new file before saving 
+```{r}
+write.csv(qapa_out, file = "/external/rprshnas01/netdata_kcni/stlab/Nuo/SFARI/out_m2/data/QAPA_MF_renamed.csv", row.names = FALSE)
+```
+
