@@ -10,7 +10,7 @@ multiple such regions, leading to complex regulation patterns, while shorter one
 gene can have transcripts with longer or shorter 3’UTRs is known as alternative polyadenylation (APA). This study aims to characterize APA events in an 
 RNA-seq dataset of iPSCs differentiating into cortical neurons. 
 
-QUANTIFICATION PROCESS
+-- Quantification Process -- 
 
 #Step 1: Data alignment to the reference transcriptome (hg38) using Salmon https://salmon.readthedocs.io/en/latest/salmon.html 
 
@@ -36,7 +36,8 @@ QUANTIFICATION PROCESS
 
 #Step 8: Analysis of Proteomic data and comparison with APA events 
 
-CONTACT
+-- Contact --
+
 Author: Maria Eleni Fafouti
 Email: marlen.fafouti@outlook.com
 LinkedIn: linkedin.com/in/maria-eleni-fafouti-72950920b 
