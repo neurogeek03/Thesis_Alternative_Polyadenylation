@@ -1,0 +1,264 @@
+---
+title: "Top 10 - New filtered Data"
+author: "Marlen"
+date: "3/1/2024"
+output: html_document
+---
+```{r}
+library (ggplot2)
+library (dplyr)
+library (cowplot)
+library (tidyverse)
+```
+
+#Importing and filtering 
+```{r}
+data <- read.csv ("/external/rprshnas01/netdata_kcni/stlab/Nuo/SFARI/out_m2/data/sites_mf_filtered_tpm_3_1.csv", sep = ",", header = TRUE )
+
+data %>%
+  filter(Gene_Name == "IFNAR1")
+
+# Lets focus on proximal sites only => this means that all PAU values are now PPAU 
+P_APA <- data %>% 
+  filter (APA_site == "P") 
+```
+
+#Reordering the data in long format 
+```{r}
+# Collapsing all PAU columns into 1 
+a <- P_APA %>% 
+  dplyr::select (-ends_with("TPM")) %>%
+  tidyr::pivot_longer(cols = ends_with(".PAU"),names_to = "neuron_sample", values_to = "PAU") %>%
+  mutate (neuron = sapply(strsplit(as.character(neuron_sample), "_"), `[`, 1))
+
+# simplifying sample names 
+a$neuron_sample <- gsub("^([^_]*_[^_]*_[^_]*)_.*$", "\\1", a$neuron_sample)
+
+# reordering time points 
+a$neuron = factor(a$neuron, levels = c('d0', 'd4', 'd30'))
+
+```
+
+#Computing median PPAU
+```{r}
+# median PAU across
+b <- a %>%
+  dplyr::select (-Chr, -APA_site, -LastExon.End, -LastExon.Start, -UTR3.Start, -UTR3.End, -Num_Events, - neuron_sample) %>%
+  group_by(APA_ID, neuron) %>%
+  mutate (median_PPAU = median(PAU)) %>% 
+  dplyr::select (-PAU) %>%
+  ungroup()
+
+b%>%
+  filter(Gene_Name == "SKA1")
+
+median_PPAU <- b %>%
+  dplyr::select (Transcript, APA_ID,Gene_Name, Gene, neuron, median_PPAU) %>% unique %>% 
+  pivot_wider(names_from = neuron, values_from = median_PPAU) 
+
+median_PPAU 
+# checking for NA values 
+print(colSums(is.na(median_PPAU)))
+
+# removing them
+median_PPAU_narm <- na.omit(median_PPAU)
+
+```
+
+#Computing DPPAU
+```{r}
+dppau_CN <- median_PPAU_narm %>% 
+  mutate (DPPAU_d30 = d0 - d30) 
+
+dppau_NPC <- median_PPAU_narm %>% 
+  mutate (DPPAU_d4 = d0 - d4) 
+
+# DPPAU - explained: 
+# LOW = PPAU in CN was lower => more distal site = LENGTHENING EVENT 
+# HIGH = PPAU in CN was higher => more proximal site = SHORTENING EVENT 
+```
+
+#DAY 30
+```{r}
+#Lets obtain 2 lists of the top 10s 
+d30_S10 <- dppau_CN %>% 
+  arrange(DPPAU_d30)%>%
+  dplyr::slice (1:10) 
+
+d30_L10 <- dppau_CN %>% 
+  filter (Gene_Name != "") %>%
+  arrange(desc(DPPAU_d30))%>%
+  dplyr::slice (1:10) 
+
+d30_S <- as.character(d30_S10$Gene_Name)
+
+d30_L <- as.character(d30_L10$Gene_Name)
+```
+#DAY 30 - GRAPH
+```{r}
+#Top10 graph
+x_limits <- range(c(d30_L10$DPPAU_d30, d30_S10$DPPAU_d30))
+cn_l10 <- d30_L10 %>%
+  ggplot(aes(x = DPPAU_d30, y = reorder(Gene_Name, DPPAU_d30))) +
+    geom_point(color = "black", fill = "#FDE725FF", size = 3, shape = 21) +
+    labs(x = "ΔPPAU (d0 - d30)",y= NULL, title = "Lengthening events") +
+    theme_minimal()+
+    theme(axis.text.y = element_text(size = 12)) +
+    xlim(25, 55) +
+    theme(text = element_text(family = "Arial"))
+
+cn_s10 <- d30_S10 %>%
+  ggplot(aes(x = DPPAU_d30, y = reorder(Gene_Name, -DPPAU_d30))) +
+    geom_point(color = "black", fill = "#534681", size = 3, shape = 21) +
+    labs(x = "ΔPPAU (d0 - d30)", y = NULL, title = "Shortening events") +
+    theme_minimal()+
+    theme(axis.text.y = element_text(size = 12)) +
+    xlim(-40, -20) +
+    theme(text = element_text(family = "Arial"))
+
+library(gridExtra)
+library(grid)
+combined_d30 <- grid.arrange(cn_s10, cn_l10, ncol = 2)
+# Add title
+combined_d30 <- arrangeGrob(combined_d30,
+                            bottom = textGrob("Top 10 genes with differential APA site usage", 
+                                           gp = gpar(fontsize = 14)))
+
+ggsave("/external/rprshnas01/netdata_kcni/stlab/Nuo/SFARI/out_m2/Graphs/sites_tpm_3d30_top10_LS.png", combined_d30, width = 8, height = 4)
+
+# ggsave("/external/rprshnas01/netdata_kcni/stlab/Nuo/SFARI/out_m2/Graphs/top10_LS.png",width = 6, height = 4)
+```
+#DAY 4
+```{r}
+d4_S10 <- dppau_NPC %>% 
+  arrange(DPPAU_d4)%>%
+  dplyr::slice (1:10) 
+
+d4_L10 <- dppau_NPC %>% 
+  arrange(desc(DPPAU_d4))%>%
+  filter (Gene_Name != "") %>%
+  dplyr::slice (1:10) 
+
+d4_S <- as.character(d4_S10$Gene_Name)
+d4_L <- as.character(d4_L10$Gene_Name)
+```
+
+#DAY 4 - GRAPH
+```{r}
+#Top10 graph
+par(mfrow = c(2, 1))
+l10 <- d4_L10 %>%
+  ggplot(aes(x = DPPAU_d4, y = reorder(Gene_Name, DPPAU_d4))) +
+    geom_point(color = "black", fill = "#FDE725FF", size = 3, shape = 21) +
+    labs(x = "ΔPPAU (d0 - d4)", y = "Gene Name", title = NULL) +
+    theme_minimal() 
+
+s10 <- d4_S10 %>%
+  ggplot(aes(x = DPPAU_d4, y = reorder(Gene_Name, -DPPAU_d4))) +
+    geom_point(color = "black", fill = "#534681", size = 3, shape = 21) +
+    labs(x = "ΔPPAU (d0 - d4)", y = "Gene Name", title = NULL) +
+    theme_minimal() 
+
+library(gridExtra)
+combined_d4 <- grid.arrange(s10, l10, ncol = 2)
+
+combined_d4  <- arrangeGrob(combined_d4,
+                            bottom = textGrob("Top 10 genes with differential APA site usage", 
+                                           gp = gpar(fontsize = 14)))
+
+ggsave("/external/rprshnas01/netdata_kcni/stlab/Nuo/SFARI/out_m2/Graphs/d4_top10_LS.png", combined_d4, width = 8, height = 4)
+```
+
+```{r}
+#Combining the two sets for d4 and d30
+par(mfrow = c(2, 1))
+
+combined_d4_d30 <- grid.arrange(combined_d30, combined_d4, ncol = 1)
+
+ggsave("/external/rprshnas01/netdata_kcni/stlab/Nuo/SFARI/out_m2/UTR_filtered_top10/top10_d4_d30_>2UTRS.png", combined_d4_d30, width = 16, height = 4)
+```
+# Plotting TPM values 
+```{r}
+#Create TPM dataset 
+TPM_data <- P_APA %>%
+  select (-ends_with("PAU")) %>%
+  tidyr::pivot_longer(cols = ends_with(".TPM"),names_to = "neuron_sample", values_to = "TPM") %>%
+  mutate (neuron = sapply(strsplit(as.character(neuron_sample), "_"), `[`, 1))
+
+# simplifying
+TPM_data$neuron_sample <- gsub("^([^_]*_[^_]*_[^_]*)_.*$", "\\1", TPM_data$neuron_sample)
+
+TPM_data$neuron = factor(TPM_data$neuron, levels = c('d0', 'd4', 'd30'))
+
+tpm_no_d4 <- TPM_data %>% filter (neuron != "d4")
+```
+
+#Combined TPM plot for lengthinging genes 
+```{r}
+plot_list <- list()
+
+# Loop through each gene name
+for (gene_name in d30_L) {
+  # Filter data for the current gene
+  plot_data <- tpm_no_d4 %>%
+    select(-Chr, -APA_site, -LastExon.End, -LastExon.Start, -UTR3.Start, -UTR3.End, -Num_Events) %>%
+    filter(Gene_Name == gene_name)
+  
+  # Create the plot for the current gene
+  plot <- ggplot(plot_data, aes(x = neuron, y = TPM , fill = neuron)) +
+    geom_boxplot() +
+    labs(x = NULL, y = "TPM") +
+    ggtitle(gene_name) +
+    theme_minimal() +
+    theme(panel.background = element_blank(), axis.line = element_line(colour = "grey"), 
+          panel.grid.major = element_blank(), panel.grid.minor = element_blank())
+  
+  # Add the plot to the list
+  plot_list[[gene_name]] <- plot
+}
+
+# Arrange the plots in a grid
+combined_plot <- plot_grid(plotlist = plot_list, ncol = 5)
+
+# Save the combined plot
+filename <- "/external/rprshnas01/netdata_kcni/stlab/Nuo/SFARI/out_m2/UTR_filtered_top10/TPM_L_d30_d0_combined.png"
+ggsave(filename, combined_plot, width = 20, height = 10)
+```
+
+#Subsetting PPAU values for d0 and d30
+```{r}
+a_no_d4 <- a %>% filter (neuron != "d4")
+```
+
+#Plotting PPAU values for lengthening genes 
+```{r}
+# Create an empty list to store plots
+plot_list <- list()
+
+# Loop through each gene name
+for (gene_name in d30_L) {
+  # Filter data for the current gene
+  plot_data <- a_no_d4 %>%
+    select(-Chr, -APA_site, -LastExon.End, -LastExon.Start, -UTR3.Start, -UTR3.End, -Num_Events) %>%
+    filter(Gene_Name == gene_name)
+  
+  # Create the plot for the current gene
+  plot <- ggplot(plot_data, aes(x = neuron, y = PAU, fill = neuron)) +
+    geom_boxplot() +
+    labs(x = NULL, y = "PPAU (%)") +
+    ggtitle(gene_name) +
+    theme_minimal() +
+    theme(panel.background = element_blank(), axis.line = element_line(colour = "grey"), 
+          panel.grid.major = element_blank(), panel.grid.minor = element_blank())
+  
+  # Add the plot to the list
+  plot_list[[gene_name]] <- plot
+}
+
+# Arrange the plots in a grid
+combined_plot <- plot_grid(plotlist = plot_list, ncol = 5)
+
+# Save the combined plot
+filename <- "/external/rprshnas01/netdata_kcni/stlab/Nuo/SFARI/out_m2/UTR_filtered_top10/PAU_L_d0_d30_combined.png"
+ggsave(filename, combined_plot, width = 20, height = 10)
+```
