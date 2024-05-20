@@ -1,0 +1,152 @@
+---
+title: "Gviz_Bulk_Graphs"
+author: "Marlen"
+date: "3/5/2024"
+output: html_document
+---
+```{r}
+#To be able to load those packages 
+library(httr)
+
+# Disable SSL certificate verification
+set_config(config(ssl_verifypeer = 0L))
+
+# Now, try to use biomaRt functions again
+```
+
+```{r}
+# Load Packages
+  library(Rsamtools)
+  library(GenomicFeatures)
+  library(GenomicRanges)
+  library(GenomicAlignments)
+  library(dplyr)
+  library(Gviz)
+#done
+
+options(ucscChromosomeNames=FALSE)
+```
+
+# This script visualizes the reads on the last exon of genes. If you wish to visualize the whole gene, you need to obtain the gene coordinates and join them by ENSEMBL ID to the genes given in the QAPA dataset. 
+```{r}
+QAPA_filtered <-read.csv("/external/rprshnas01/netdata_kcni/stlab/Nuo/SFARI/out_m2/data/mf_filtered_tpm_3_1.csv", header = TRUE, sep = ",")
+
+#Extracting Chr number
+QAPA_filtered <- QAPA_filtered %>% 
+  mutate(chr_number = gsub("[^0-9]", "", Chr)) %>% 
+  relocate (chr_number) 
+```
+
+#Metion your required gene list here
+```{r}
+#Here I state a few lengthening and shortening genes identified in the top 10 genes 
+#d0-d30
+d30_S <- list("TMED10", "XRCC5", "ZNF700", "TUBB", "USP9X", "C11orf24", "FNDC4", "ATP5PB", "PDCD7", "TMEM209")
+
+d30_L <- list("PCDHB2", "DNAJC15", "APBA2", "EMC1", "CHD3", "HSPA4", "ELOA", "TP53RK", "YIPF5", "SPATA2")
+
+#d0-d4
+d4_S <- list("XRCC5", "ZNF700", "TMED10", "C11orf24", "FBLIM1", "FNTA", "NME4", "CFAP97", "AAGAB", "TIGD1")
+
+# Additional elements
+d4_L <- list("TONSL", "COA5", "PCDHB2", "EMC1", "TMCO3", "APBA2", "SRSF8", "SMURF2", "SPATA2", "PCNX1")
+```
+
+#Loop generating multiple pdfs of reads that compare the 3 timpoints (day 0, day 4, day 30). The reads are obtained from BAM files created using STAR sequence alignment. One BAM file from one biological sample is used per timepoint.
+#This script assumes that the gene has 1 distal and 1 proximal site. If more sites are present, small adaptations need to be made. 
+```{r}
+#Test
+test_d30 <- list("PCDHB2")
+
+#Define your gene list
+gene_list_name <- "d30_L"
+gene_list <- test_d30
+##############################################################################################################
+# Loop through each gene name
+for (current_gene_name in gene_list) {
+  # Filter data for the current gene
+  gene_loc <- QAPA_filtered %>% 
+    # filter (APA_site == "P") %>% #taking the last exon coordinates for the P site - a good standard
+    filter(Gene_Name == current_gene_name)
+  
+    chr <- gene_loc[gene_loc$APA_site == "P", "chr_number"]
+      #FOR CASK: "X"
+      #
+    strand <- gene_loc[gene_loc$APA_site == "P", "Strand"]
+  
+  # Setting the parameters
+  
+    if (strand == "+") {
+    afrom <- min(gene_loc$LastExon.Start)
+    ato <- max(gene_loc[gene_loc$APA_site == "D", "LastExon.End"])} 
+    else {
+    afrom <- min(gene_loc[gene_loc$APA_site == "P", "LastExon.Start"])
+    ato <- max(gene_loc$LastExon.End)}
+
+  #Filter gene for all sites 
+  gene_coord <- QAPA_filtered %>% 
+    filter(Gene_Name == current_gene_name)
+  
+  #Poly(A) sites 
+  P_start <- gene_coord[gene_coord$APA_site == "P", "UTR3.Start"]
+  P_end <- gene_coord[gene_coord$APA_site == "P", "UTR3.End"]
+  D_start <- gene_coord[gene_coord$APA_site == "D", "UTR3.Start"]
+  D_end <- gene_coord[gene_coord$APA_site == "D", "UTR3.End"]
+
+  
+  P_site <- GRanges(chr, IRanges(P_start, P_end))
+  D_site <- GRanges(chr, IRanges(D_start, D_end))
+  
+  P_track <- AnnotationTrack(P_site, name = "P Site", shape = "box", fill = "#534681",  fontcolor.feature = "#4F4C50", fontsize = 8, width = 30)
+#id = "P", featureAnnotation ="id",
+  D_track <- AnnotationTrack(D_site, name = "D Site", shape = "box", fill = "#FDE725FF", fontcolor.feature = "#4F4C50", fontsize = 8, width = 15)
+#id = "D", featureAnnotation ="id",
+
+
+  # Defining where this thing will be saved 
+  base_path <- "/external/rprshnas01/netdata_kcni/stlab/Nuo/SFARI/out_m2/Analysis_M/Gviz_check"
+  filename_prefix <- gene_list_name
+  filename <- paste0(base_path, "/", filename_prefix, "_", strand, "_", current_gene_name, ".pdf")
+  
+  # Open a new PDF device
+  pdf(filename, width = 7, height = 5)
+  
+  #Labelling 3 UTR 
+  UTR_Track <- GenomeAxisTrack(
+    range = IRanges(
+        start = min(gene_loc$UTR3.Start),
+        end = ato),
+    name = "3'UTR",
+    chromosome = chr,
+    add53 = ifelse(strand == "+", TRUE, FALSE),
+    add35 = ifelse(strand == "-", TRUE, FALSE), fontsize = 9)
+  
+    # Drawing reads curve for d30, d0
+  # d30_1_1
+  alTrack1 <- AlignmentsTrack("/external/rprshnas01/netdata_kcni/stlab/Nuo/SFARI/out_m2/Analysis_M/Gviz_check/CN_1_1_previous_tube_label_CN_1_2_S3Aligned.sortedByCoord.out.bam", isPaired = TRUE, name = "d30")
+  
+  #d0_1
+  alTrack2 <- AlignmentsTrack("/external/rprshnas01/netdata_kcni/stlab/Nuo/SFARI/out_m2/Analysis_M/Gviz_check/iPSC_1_S1Aligned.sortedByCoord.out.bam", isPaired = TRUE,name = "d0")
+  
+  #d04_1_1
+  alTrack3 <- AlignmentsTrack("/external/rprshnas01/netdata_kcni/stlab/Nuo/SFARI/out_m2/Analysis_M/Gviz_check/NPC_2_1_S6Aligned.sortedByCoord.out.bam", isPaired = TRUE,name = "d04")
+  
+  #Setting color parameters
+  displayPars(alTrack1) <- list(alpha.title = 1, alpha = 1, fill = "#0353A4") # blue for d30 "#143AD2"
+  displayPars(alTrack2) <- list(alpha.title = 1, alpha = 1, fill = "#A60067")  # red for d0 #A22522
+  displayPars(alTrack3) <- list(alpha.title = 1, alpha = 1, fill = "#348D14")
+  # displayPars(alTrack3) <- list(alpha.title = 1, alpha = 0.8, fill = "#51CB20")# green for d4
+  ot <- OverlayTrack(trackList=list(alTrack1, alTrack2), name = "Comparison")
+
+  
+  plot_object <- plotTracks(c(UTR_Track, P_track, D_track, alTrack2, alTrack3, alTrack1), ylim=c(0, 2000),
+                            from = afrom, to = ato, chromosome = chr, min.height = 0, coverageHeight = 0.08, minCoverageHeight = 0, type = "coverage", sizes = c(0.1, 0.05, 0.05, .3, .3, .3), names = c("3'UTR", "P Site", "D Site", "d0", "d4" ,"d30"))
+
+
+  
+  print(plot_object)
+  
+  dev.off()
+}
+
+```
