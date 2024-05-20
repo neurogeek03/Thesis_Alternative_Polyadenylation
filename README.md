@@ -1,7 +1,6 @@
-# Thesis_Alternative_Polyadenylation
-
-Title: Quantification of Alternative Polyadenylation in RNA-seq datasets over neurodevelopment time 
-This project uses 2 methods to identify 3'UTR lengthening or shortening by comparing two timepoints in neuron differentiation (day 30 with day 0). 
+# Alternative Polyadenylation Quantification
+This repository contains information for the quantification of Alternative Polyadenylation (APA) in RNA-seq datasets over neurodevelopment time 
+This project uses the QAPA and DEXseq methods to identify 3'UTR lengthening or shortening by comparing two timepoints in neuron differentiation (day 30 with day 0). 
 
 Abstract: The role of post-transcriptional regulation in neurodevelopment is quite pervasive, activating gene programs that give rise to specialized cell 
 features and functions. In this context, 3’ untranslated regions (3’UTRs) play a significant role in regulating mRNA translation, stability, and subcellular 
@@ -10,8 +9,10 @@ multiple such regions, leading to complex regulation patterns, while shorter one
 gene can have transcripts with longer or shorter 3’UTRs is known as alternative polyadenylation (APA). This study aims to characterize APA events in an 
 RNA-seq dataset of iPSCs differentiating into cortical neurons. 
 
-![image](https://github.com/neurogeek03/Thesis_Alternative_Polyadenylation/assets/148254213/1c2a5cba-c067-4799-9fbe-1a31689b712e)
+![image](https://github.com/neurogeek03/Thesis_Alternative_Polyadenylation/assets/148254213/ac313eb3-544a-4d46-a5fa-4fd504399dcb)
 
+Figure description: Certain RNA transcripts can contain only 1 site for cleavage and polyadenylation, which we call single. When there are multiple cleavage and 
+polyadenylation sites, we name the one closest to the coding sequence (CDS) Proximal (P), while the sites downstream are called Distal (D). 
 
 -- Quantification Process -- 
 
