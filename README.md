@@ -35,6 +35,9 @@ polyadenylation sites, we name the one closest to the coding sequence (CDS) Prox
 -- Contact --
 
 Author: Maria Eleni Fafouti
+
 Email: marlen.fafouti@outlook.com
+
 LinkedIn: linkedin.com/in/maria-eleni-fafouti-72950920b 
+
 Feel free to reach out if you have any questions or need further assistance!
