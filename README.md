@@ -11,6 +11,7 @@ gene can have transcripts with longer or shorter 3’UTRs is known as alternativ
 RNA-seq dataset of iPSCs differentiating into cortical neurons. 
 
 Process of Quantification 
+
 #Step 1: Data alignment to the reference transcriptome (hg38) using Salmon https://salmon.readthedocs.io/en/latest/salmon.html 
 
 #Step 2: Quantification of APA using QAPA https://github.com/morrislab/qapa 
