@@ -10,31 +10,26 @@ multiple such regions, leading to complex regulation patterns, while shorter one
 gene can have transcripts with longer or shorter 3’UTRs is known as alternative polyadenylation (APA). This study aims to characterize APA events in an 
 RNA-seq dataset of iPSCs differentiating into cortical neurons. 
 
+![image](https://github.com/neurogeek03/Thesis_Alternative_Polyadenylation/assets/148254213/1c2a5cba-c067-4799-9fbe-1a31689b712e)
+
+
 -- Quantification Process -- 
 
-#Step 1: Data alignment to the reference transcriptome (hg38) using Salmon https://salmon.readthedocs.io/en/latest/salmon.html 
+# Step 1: Data alignment to the reference transcriptome (hg38) using Salmon https://salmon.readthedocs.io/en/latest/salmon.html 
 
-#Step 2: Quantification of APA using QAPA https://github.com/morrislab/qapa 
+# Step 2: Quantification of APA using QAPA https://github.com/morrislab/qapa 
 
-#Step 3: Data preprocessing 
+# Step 3: Data preprocessing 
   
-  i) Filtering to maintain APA events with TPM>3 
-  
-  ii) Ensuring that complete APA events are present in the data 
+# Step 4: Identifying lengthening and shortening events 
 
-#Step 4: Identifying lengthening and shortening events 
+# Step 5: Visualizing reads using Gviz 
 
-  i) Computing PPAU and ΔPPAU values 
-  
-  ii) Identification of the top 10 shortening and lengthening events 
+# Step 6: Quantification of APA using DEXseq 
 
-#Step 5: Visualizing reads using Gviz 
+# Step 7: Comparison of QAPA and DEXseq 
 
-#Step 6: Quantification of APA using DEXseq 
-
-#Step 7: Comparison of QAPA and DEXseq 
-
-#Step 8: Analysis of Proteomic data and comparison with APA events 
+# Step 8: Analysis of Proteomic data and comparison with APA events 
 
 -- Contact --
 
