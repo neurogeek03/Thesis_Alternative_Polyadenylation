@@ -14,23 +14,23 @@ RNA-seq dataset of iPSCs differentiating into cortical neurons.
 Figure description: Certain RNA transcripts can contain only 1 site for cleavage and polyadenylation, which we call single. When there are multiple cleavage and 
 polyadenylation sites, we name the one closest to the coding sequence (CDS) Proximal (P), while the sites downstream are called Distal (D). 
 
--- Quantification Process -- 
+# Quantification Process 
 
-# Step 1: Data alignment to the reference transcriptome (hg38) using Salmon https://salmon.readthedocs.io/en/latest/salmon.html 
+#Step 1: Data alignment to the reference transcriptome (hg38) using Salmon https://salmon.readthedocs.io/en/latest/salmon.html 
 
-# Step 2: Quantification of APA using QAPA https://github.com/morrislab/qapa 
+#Step 2: Quantification of APA using QAPA https://github.com/morrislab/qapa 
 
-# Step 3: Data preprocessing 
+#Step 3: Data preprocessing 
   
-# Step 4: Identifying lengthening and shortening events 
+#Step 4: Identifying lengthening and shortening events 
 
-# Step 5: Visualizing reads using Gviz 
+#Step 5: Visualizing reads using Gviz 
 
-# Step 6: Quantification of APA using DEXseq 
+#Step 6: Quantification of APA using DEXseq 
 
-# Step 7: Comparison of QAPA and DEXseq 
+#Step 7: Comparison of QAPA and DEXseq 
 
-# Step 8: Analysis of Proteomic data and comparison with APA events 
+#Step 8: Analysis of Proteomic data and comparison with APA events 
 
 -- Contact --
 
