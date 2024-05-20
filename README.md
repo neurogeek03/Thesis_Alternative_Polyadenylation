@@ -17,18 +17,20 @@ Process of Quantification
 #Step 2: Quantification of APA using QAPA https://github.com/morrislab/qapa 
 
 #Step 3: Data preprocessing 
+  
   i) Filtering to maintain APA events with TPM>3 
+  
   ii) Ensuring that complete APA events are present in the data 
 
 #Step 4: Identifying lengthening and shortening events 
+
   i) Computing PPAU and ΔPPAU values 
+  
   ii) Identification of the top 10 shortening and lengthening events 
 
 #Step 5: Visualizing reads using Gviz 
 
 #Step 6: Quantification of APA using DEXseq 
-  i) Data pre-processing to aggregate D sites 
-  ii) DEXseq run
 
 #Step 7: Comparison of QAPA and DEXseq 
 
