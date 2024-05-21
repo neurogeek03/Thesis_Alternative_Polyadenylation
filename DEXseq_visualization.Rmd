@@ -1,0 +1,224 @@
+---
+title: "DEXseq_visualization"
+author: "Marlen"
+date: "5/21/2024"
+output: html_document
+---
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(RColorBrewer) # for a colourful plot
+library(ggrepel) # for nice annotations
+library(VennDiagram)
+```
+# Reading data
+```{r}
+#Obtaining information of Gene Names to match them to the ENSEMBL IDs in the DEXseq output 
+gtf_path <- "/external/rprshnas01/netdata_kcni/stlab/Genomic_references/Ensembl/Human/Release_103/Raw/Homo_sapiens.GRCh38.103.gtf"
+annotation_from_gtf <- rtracklayer::import(gtf_path) %>%
+    dplyr::as_tibble() %>%
+    dplyr::filter(type == "gene") %>%
+    dplyr::select(gene_id, gene_name)
+
+qapa_data <- read.csv ("/external/rprshnas01/netdata_kcni/stlab/Collaborators/SFARI/out_m2/data/sites_mf_filtered_tpm_3_1.csv", header= TRUE)
+
+log2fc_data  <- read.csv ("/external/rprshnas01/netdata_kcni/stlab/Collaborators/SFARI/out_m2/data/CN_iPSC_log2fc_data.csv", header= TRUE)
+```
+
+#Calculating DPPAU 
+```{r}
+dppau_data <- qapa_data %>% 
+  filter (APA_site == "P") %>% # we dont need the other sites for this
+  dplyr::select(-APA_site) %>%
+  dplyr::select(Gene, Gene_Name, APA_ID, ends_with(".PAU")) %>% 
+  tidyr::pivot_longer(cols = ends_with(".PAU"),names_to = "neuron", values_to = "PAU") %>%
+  mutate (neuron = sapply(strsplit(as.character(neuron), "_"), `[`, 1)) %>%
+  group_by(APA_ID, neuron) %>% 
+  mutate(PAU = median(PAU))%>% unique() %>% ungroup() %>%
+  tidyr::pivot_wider (names_from = neuron, values_from = PAU)  %>%
+  group_by(APA_ID) %>%
+  mutate (DPPAU = d0 - d30) %>%
+  dplyr::select(Gene, Gene_Name, DPPAU)
+```
+
+#Formatting data 
+```{r}
+#define some genes thatc you want to name
+specific_genes <- c("NOP14", "TMED10", "ZNF700", "USP9X", "XRCC5", "TUBB", "FNDC4" ,"ATP5F1" ,  "PDCD7", "COX5B", "CSNK1G3")
+
+data <- CN_log2fc %>% 
+  arrange(pvalue) %>%
+  filter(featureID == "P") %>%
+  dplyr::select(-featureID) %>%
+  inner_join (annotation_from_gtf, join_by(groupID == gene_id)) %>%
+  relocate (gene_name) %>%
+  inner_join(dppau_data, join_by(groupID == Gene)) %>%
+  arrange(log2fold_CN_iPSC)
+
+#adding labels to specific genes that meet my thresholds
+data$delabel <- ifelse(data$gene_name %in% head(data[data$padj < 0.05 & 
+                                                   (data$log2fold_NPC_iPSC < -0.9 | 
+                                                    data$log2fold_NPC_iPSC > 0.9), "gene_name"], 20) |
+                         data$gene_name %in% specific_genes,
+                     data$gene_name, 
+                     NA)
+```
+
+#Simple volcano plot 
+```{r}
+#setting thresholds
+fc_threshold <- 0.9  # Example threshold for fold change
+pvalue_threshold <- 0.05  # Example threshold for p-value
+
+#plotting
+volcano1_dexseq <- ggplot(data = data, aes(x = log2fold_NPC_iPSC, y = -log10(padj))) +
+  geom_point(aes(color = ifelse(abs(log2fold_NPC_iPSC) > fc_threshold & padj < pvalue_threshold, "Significant", "Not Significant")), size = 2, alpha = 0.2) +
+  labs(title = "DEXseq: Differential APA site usage",
+    x = "log2FC(d4/d0)", 
+    y = "-log10(padj)"  # Update the y-axis label accordingly
+  ) +
+  # geom_text(data = subset(data, !is.na(delabel)), aes(label = delabel), hjust = 0, vjust = 0) +
+  geom_hline(yintercept = -log10(pvalue_threshold), linetype = "dashed", color = "gray") +
+  geom_vline(xintercept = c(-fc_threshold, fc_threshold), linetype = "dashed", color = "gray") +
+  # annotate("text", x = 0, y = 10, label = "y = 0.05", hjust = 2, color = "gray") +
+  # annotate("text", x = 5, y = 50, label = "x = 1.5", vjust = -1.7, color = "gray") +
+  theme_minimal() +
+  labs(color = "Significance") +
+  scale_color_manual(values = c("darkblue", "#bb0c00")) +
+  geom_label_repel(data = subset(data, !is.na(delabel)), aes(label = delabel), 
+                   box.padding = 0.5, point.padding = 0.5, segment.color = "gray", 
+                   segment.size = 0.2, segment.alpha = 0.5, fill = "white", max.overlaps = 15, size = 3, nudge_x = 0.5, nudge_y = 0.5) +
+  theme(axis.text.y = element_text(size = 16)) +
+  theme(axis.text.x = element_text(size = 16)) +
+  xlim(-2.7, 2.7) +
+  theme(text = element_text(family = "Arial")) +
+  theme(axis.title = element_text(size = 14)) +
+  theme(plot.title = element_text(size = 20)) + 
+  theme(legend.text = element_text(size = 14),  # Adjust the legend text size here
+        legend.title = element_text(size = 16),
+        panel.grid = element_blank()) 
+  # theme(panel.background = element_rect(fill = "white"))
+
+ggsave("/external/rprshnas01/netdata_kcni/stlab/Collaborators/SFARI/out_m2/Graphs/d4_volcano_dexseq.png", volcano1_dexseq, width = 12, height = 7)
+
+```
+
+#Subsetting lengthening and shortening genes
+```{r}
+#QAPA 
+qapa_fil <- dppau_data %>%
+  ungroup() %>%
+  dplyr::select(Gene, Gene_Name, DPPAU) %>%
+  filter (DPPAU > 20 | DPPAU < -20) %>%
+  dplyr::select (Gene)
+  
+qapa_fil_L <- dppau_data %>%
+  ungroup() %>%
+  dplyr::select(Gene, Gene_Name, DPPAU) %>%
+  filter (DPPAU > 20) 
+  
+#DEXseq 
+dex_fil <- data %>%
+  dplyr::select(gene_name, groupID, padj, log2fold_CN_iPSC) %>%
+  filter (padj < 0.05) %>%
+  filter (abs(log2fold_CN_iPSC) > 0.9) %>%
+  dplyr::select (groupID)
+
+dex_fil_L <- data %>%
+  dplyr::select(gene_name, groupID, padj, log2fold_CN_iPSC) %>%
+  filter (padj < 0.05) %>%
+  filter (log2fold_CN_iPSC< -0.9) %>%
+  arrange(log2fold_CN_iPSC)
+
+both_methods_genes <- dex_fil_L %>% 
+  inner_join(qapa_fil_L, join_by(gene_name == Gene_Name )) 
+
+save(both_methods_genes, file = "/external/rprshnas01/netdata_kcni/stlab/Collaborators/SFARI/out_m2/Analysis_M/my_data.RData")
+```
+
+#Summary graph for DEXseq 
+```{r}
+dex_fil <- data %>%
+  dplyr::select(gene_name, groupID, padj, log2fold_CN_iPSC) %>%
+  filter (padj < 0.05) %>%
+  filter (abs(log2fold_CN_iPSC) > 0.9) %>%
+  dplyr::select (groupID)
+
+event_types <- data %>% 
+  dplyr::select(gene_name, groupID, padj, log2fold_CN_iPSC) %>% 
+  mutate (event = if_else(log2fold_CN_iPSC > 0.9 & padj < 0.05, "Shortening", 
+                           if_else(log2fold_CN_iPSC < -0.9 & padj < 0.05, "Lengthening", "No change"))) %>% 
+  filter(!is.na(gene_name)) %>% 
+  filter(!is.na(event)) %>% 
+  dplyr::select(gene_name, event) %>% ungroup() %>%
+  group_by(event) %>%
+  summarize(count = n()) 
+
+event_types$event <- factor(event_types$event,c("No change","Lengthening", "Shortening"))
+
+event_types <- data.frame(event_types, color = c("#FDE725FF", "darkgrey",  "#534681"))
+```
+
+#Venn plot 
+```{r}
+#Lets get background genes 
+genes_bg <- qapa_data %>% 
+  dplyr:: select(Gene) %>% distinct() %>% 
+  filter(!is.na(Gene))
+
+venn_data <- list(
+  QAPA = qapa_fil$Gene,
+  DEXseq = dex_fil$groupID, 
+  Background = genes_bg$Gene
+)
+
+# Create the Venn diagram object
+venn_plot <- venn.diagram(
+  x = venn_data,
+  filename = "/external/rprshnas01/netdata_kcni/stlab/Collaborators/SFARI/out_m2/Graphs/new2_venn.png",
+  category.names = c("QAPA", "DEXseq", "Background"),  # Add Background category
+  fill = c("#348D14", "#0353A4", "grey"),  # Define colors for the circles
+  alpha = 0.5,  # Set transparency
+  cex = 2,  # Increase the size of the labels
+  cat.fontface = "bold"  # Make category names bold
+)
+
+# Save the modified Venn diagram plot as a PNG file with the specified filename
+filename <- "/external/rprshnas01/netdata_kcni/stlab/Collaborators/SFARI/out_m2/Graphs/new2_venn.png"
+png(filename)
+# grid.draw(venn.plot)
+dev.off()
+```
+
+#Fisher;s exact test to see the significance of the overlap
+```{r}
+# Perform Fisher's exact test between QAPA and DEXseq considering Background genes
+fisher_test <- venn::venn(list(QAPA = qapa_fil$Gene, DEXseq = dex_fil$groupID, Background = background_genes))
+
+# Get p-value for the overlap between QAPA and DEXseq
+p_value <- fisher_test$pvalues[1, 2]
+```
+
+#Alternative method to test significance: Hypergeometric test
+```{r}
+#Usually preferred for larger datasets 
+
+# Calculate necessary values for the enrichment p-value
+N <- length(background_genes)
+A <- sum(QAPA_genes %in% background_genes)
+B <- sum(DEXseq_genes %in% background_genes)
+k <- sum(QAPA_genes %in% DEXseq_genes)
+
+# Define the enrichment p-value function
+enrich_pvalue <- function(N, A, B, k) {
+    m <- A + k
+    n <- B + k
+    i <- k:min(m,n)
+    as.numeric(sum(chooseZ(m, i) * chooseZ(N - m, n - i)) / chooseZ(N, n))
+}
+
+# Calculate the enrichment p-value
+p_value <- enrich_pvalue(N, A, B, k)
+```
+

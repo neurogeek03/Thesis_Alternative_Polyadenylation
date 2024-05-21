@@ -1,0 +1,125 @@
+---
+title: "DEXseq_run"
+author: "Marlen"
+date: "5/21/2024"
+output: html_document
+---
+
+# Running QAPA
+In `/external/rprshnas01/netdata_kcni/stlab/Collaborators/SFARI/out_m2`. 
+Note that the option `-f` is set to `NumReads`, this would give us `NumReads` field from the `quant.sf` files produced by salmon.
+```{bash engine.opts='-l'}
+qapa quant \
+--db /external/rprshnas01/netdata_kcni/stlab/Collaborators/SFARI/qapa/examples/hg19/ensembl.identifiers.txt \
+-f NumReads /external/rprshnas01/netdata_kcni/stlab/Collaborators/SFARI/out_m2/salmon_results/*quant/quant.sf > data/pau_results_NX.txt
+```
+
+# Load libraries
+```{r}
+library(DEXSeq)
+library(dplyr)
+library(stringr)
+library(msigdbr)
+library(fgsea)
+# library(clusterProfiler)
+library(org.Hs.eg.db)
+# library(gprofiler2)
+
+"/external/rprshnas01/netdata_kcni/stlab/Collaborators/SFARI/out_m2/Analysis_M/DEXSeq_run_Nuo-copy.Rmd"
+```
+
+# Preprocessing
+Preprocessing PAU_results.txt, output from QAPA.
+```{r}
+pau_results <- read.csv("/external/rprshnas01/netdata_kcni/stlab/Collaborators/SFARI/out_m2/data/pau_results_NX2.txt",sep="\t" )
+
+# pau_results %>% filter(is.na(Gene)) %>% View()
+# remove S sites
+pau_results <- pau_results[str_extract(pau_results$APA_ID, "(?<=\\d_)\\D") != "S", ]
+# Add a column for APA type (P or D)
+pau_results <- pau_results %>% mutate(APA_type = str_extract(pau_results$APA_ID, "(?<=\\d_)\\D"))
+```
+
+Concatenating all D sites
+```{r}
+pau_results <- pau_results[, c(colnames(pau_results)[str_detect((colnames(pau_results)), "TPM")], "APA_type", "Gene")]
+#remember: this TPM is actually number of reads ! 
+
+sum_ignore_na <- function(x) {
+  sum(x, na.rm = TRUE)
+}
+
+pau_results <- pau_results %>%
+  group_by(Gene, APA_type) %>%
+  summarise(across(.cols = everything(), .fns = sum_ignore_na))
+  
+# replaced this to fit the newer version of dplyr 
+#summarise(across(.cols = everything(), .fns = sum, na.rm = TRUE))
+
+pau_results <- pau_results[which(!is.na(pau_results$Gene)), ]
+```
+#Obtaining the filtered data, but for the Numreads file 
+```{r}
+#We have generated 2 files for QAPA, 1 for Numreads and 1 for TPM 
+#Here we use the gene ids from the already filtered TPM file to to look for them in the NumReads file 
+
+tpm_data <- read.csv ("/external/rprshnas01/netdata_kcni/stlab/Nuo/SFARI/out_m2/data/sites_mf_filtered_tpm_3_1.csv", sep = ",", header = TRUE )
+
+filtered_Genes <- tpm_data %>% 
+  dplyr::select(Gene)
+
+#Performing the analysis only for highly expressed, complete APA events 
+pau_results <-pau_results %>%
+  semi_join(filtered_Genes, by = "Gene")
+
+#results look good to me - since we are not looking at any S sites they are about 1/2 of 8k rows - fine!
+```
+
+Creating DEXSeqDataSet object.
+```{r}
+featureID <- pau_results$APA_type
+groupID <- pau_results$Gene
+sampleData <- data.frame(condition = str_extract(colnames(pau_results)[3:17], "[^_]+"))
+
+# Comparing between CN and NPC
+keep <- sampleData$condition %in% c("CN", "iPSC")
+CN_iPSC <- DEXSeqDataSet(
+  round(pau_results[, c(3:17)[keep]]),
+  data.frame(condition = sampleData[keep, ]),
+  formula( ~ sample + exon + condition:exon),
+  featureID,
+  groupID
+)
+```
+
+Running DEXSeq
+```{r}
+CN_iPSC <- estimateSizeFactors(CN_iPSC)
+CN_iPSC <- estimateDispersions(CN_iPSC)
+CN_iPSC <- testForDEU(CN_iPSC)
+# This step takes some time
+CN_iPSC <- estimateExonFoldChanges(CN_iPSC, fitExpToVar="condition", denominator = "iPSC")
+
+# replaced this 
+#estimateExonFoldChanges(CN_NPC, fitExpToVar="condition")
+
+CN_iPSC_res <- DEXSeqResults(CN_iPSC)
+```
+
+Remove NA p-values and write to disk
+```{r}
+CN_iPSC_res <- CN_iPSC_res[!is.na(CN_iPSC_res$padj), ]
+save(CN_iPSC, CN_iPSC_res, file = "/external/rprshnas01/netdata_kcni/stlab/Collaborators/SFARI/out_m2/data/filtered_new_iPSC_CN.RData")
+```
+
+Saving the results as dataframes 
+```{r}
+#This means that there will be no need to 
+log2fc_data <- CN_iPSC_res[, c("groupID", "featureID", "pvalue", "padj", "log2fold_CN_iPSC")] %>% as.data.frame()
+
+log2fc_data <- CN_iPSC_res %>% 
+  as.data.frame() %>% 
+  dplyr::select(c("groupID", "featureID", "pvalue", "padj", "log2fold_CN_iPSC"))
+
+write.csv(log2fc_data, file = "/external/rprshnas01/netdata_kcni/stlab/Nuo/SFARI/out_m2/data/CN_iPSC_log2fc_data.csv", row.names = FALSE)
+```

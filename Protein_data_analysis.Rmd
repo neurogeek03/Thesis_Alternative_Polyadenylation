@@ -1,0 +1,219 @@
+---
+title: "Protein_each_gene"
+author: "Marlen"
+date: "5/8/2024"
+output: html_document
+---
+#libraries
+```{r}
+library(broom)
+library(readxl)
+library (dplyr)
+library(ggplot2)
+library(tidyverse)
+library(ggpubr)
+```
+
+#data
+```{r}
+protein_data <- read_excel("/external/rprshnas01/netdata_kcni/stlab/Collaborators/SFARI/out_m2/data/tc-1154_proteinquant_3619.xlsx",  sheet = 4,  col_names = TRUE)
+
+qapa_data <- read.csv ("/external/rprshnas01/netdata_kcni/stlab/Collaborators/SFARI/out_m2/data/sites_mf_filtered_tpm_3_1.csv", header = TRUE)
+```
+
+#Creating dataset for gene annotations
+```{r}
+gtf_path <- "/external/rprshnas01/netdata_kcni/stlab/Genomic_references/Ensembl/Human/Release_103/Raw/Homo_sapiens.GRCh38.103.gtf"
+annotation_from_gtf <- rtracklayer::import(gtf_path) %>%
+    dplyr::as_tibble() %>%
+    dplyr::filter(type == "gene") %>%
+    dplyr::select(gene_id, gene_name)
+```
+
+#QAPA: fromatting
+```{r}
+tpm_long <- qapa_data %>% 
+  filter (APA_site == "P") %>% #ensures unique genes
+  dplyr::select(Gene_Name,Gene,ends_with("TPM")) %>%
+  tidyr::pivot_longer(cols = 3:17, names_to = "neuron_sample", values_to = "TPM") 
+
+tpm_long$neuron <- gsub("^([^_]*_*)_.*$", "\\1", tpm_long$neuron_sample)
+
+tpm_means <- tpm_long %>% 
+  dplyr::select(-neuron_sample) %>%
+  group_by(neuron, Gene) %>% 
+  mutate (mean_tpm = mean(TPM)) %>% 
+  dplyr::select(-TPM) %>% unique() %>%
+  filter(mean_tpm > 0) %>% #filtering out low tpm
+  ungroup() %>% 
+  dplyr::select(-ends_with("PAU")) %>%
+  mutate(mean_tpm = log2(mean_tpm))
+
+#Renaming to match the protein dataset
+names(tpm_means)[names(tpm_means) == "Gene_Name"] <- "GeneSymbol"
+```
+#Obtaining DPPAU rank list from QAPA
+```{r}
+heatmap_mean_filtered <- qapa_data %>% 
+  filter (APA_site == "P") %>% # we dont need the other sites for this
+  dplyr::select(-APA_site) %>%
+  select(Gene_Name, APA_ID, Gene, ends_with(".PAU")) %>% 
+  tidyr::pivot_longer(cols = ends_with(".PAU"),names_to = "neuron", values_to = "PAU") %>%
+  mutate (neuron = sapply(strsplit(as.character(neuron), "_"), `[`, 1)) %>%
+  group_by(APA_ID, neuron) %>% 
+  mutate(PAU = median(PAU))%>% unique() %>% ungroup() %>%
+  tidyr::pivot_wider (names_from = neuron, values_from = PAU)  %>%
+  group_by(APA_ID) %>%
+  mutate (DPPAU = d0 - d30) %>%   
+  filter (DPPAU > 20 ) %>% #looking for high differences in UTR length over time  
+  arrange (desc(DPPAU)) %>% 
+  tidyr::pivot_longer(cols = 4:6, names_to= "neuron", values_to= "PPAU") %>% 
+  mutate (PPAU = 100 - PPAU) %>% 
+  ungroup()
+
+all_L_events <- heatmap_mean_filtered %>%
+  select(Gene, Gene_Name, DPPAU ) %>% unique 
+
+top_30_genes <- head(all_events, 50)
+  
+top_30_gene_symbols <- top_30_genes$Gene_Name
+
+# Convert the gene symbols to a list
+top_30_gene_list <- as.list(top_30_gene_symbols)
+
+
+all_L_events_list <- as.list(all_L_events$Gene_Name)
+```
+
+#Proteins: formatting
+```{r}
+protein_row <- protein_data %>%
+  dplyr::select(1,2,5:15) %>%
+  tidyr::pivot_longer(cols = 3:13, names_to = "neuron_sample", values_to = "Protein_count")
+
+protein_row$neuron <- gsub(".*_([^\\.]+)\\..*", "\\1", protein_row$neuron_sample)
+
+protein_means_timepoint<-protein_row %>%
+  dplyr::select(-neuron_sample) %>%
+  group_by(GeneSymbol, neuron) %>%
+  mutate(mean_prot_count = mean(Protein_count)) %>% unique %>%
+  dplyr::select(-Protein_count) %>% 
+  inner_join(annotation_from_gtf, join_by (GeneSymbol ==  gene_name))%>% unique 
+```
+
+
+# Protein data: Renaming
+```{r}
+mapping <- c("t00" = "d0",
+             "t4" = "d4",
+             "t30" = "d30")
+
+# case_when to replace old values with new values
+protein_means_timepoint <- protein_means_timepoint %>%
+  mutate(neuron = case_when(
+    neuron %in% names(mapping) ~ mapping[neuron],
+    TRUE ~ neuron
+  ))
+
+protein_means_timepoint$neuron <- factor(protein_means_timepoint$neuron, c("d0", "d4", "d30")) 
+```
+
+#Obtaining protein information from the lengthening events determined by both QAPA and DEXseq 
+```{r}
+both_prot <- protein_means_timepoint %>%
+  inner_join(both_methods_genes, join_by(gene_id == groupID))
+
+both_prot$neuron <- as.factor(both_prot$neuron)
+
+stat <- pairwise.wilcox.test(both_prot$mean_prot_count, both_prot$neuron, p.adjust.method = "holm")
+```
+
+```{r}
+# Extract p-values and format them for ggpubr
+pairwise_results <- as.data.frame(stat$p.value)
+pairwise_results$group1 <- rownames(pairwise_results)
+pairwise_results <- pairwise_results %>%
+  gather(key = "group2", value = "p.value", -group1) %>%
+  filter(!is.na(p.value))
+
+# Add significance labels
+pairwise_results$p.adj.signif <- cut(pairwise_results$p.value,
+                                     breaks = c(-Inf, 0.001, 0.01, 0.05, Inf),
+                                     labels = c("***", "**", "*", "ns"))
+
+pairwise_results$y.position <- c(15, 19, 17)  # Example positions
+# Print pairwise results for verification
+print(pairwise_results)
+```
+
+```{r}
+both_plot <- ggplot(both_prot, aes(x = neuron, y = mean_prot_count)) +
+  labs(x = NULL, y = NULL) +
+  geom_boxplot(color = "#713798", width = 0.7, size = 0.5) + 
+  geom_jitter(position = position_jitter(width = 0.2), alpha = 0.5, color = "#713798") +
+  coord_cartesian(ylim = c(0, 20)) + 
+  # stat_pvalue_manual(pairwise_results,mapping = aes(label = "p.adj.signif"), size = 3) +
+  stat_pvalue_manual(pairwise_results, label = "p.adj.signif", tip.length = 0.1) +
+  scale_x_discrete(labels = c("None", "1", "2", "3")) +
+  theme_minimal() +
+  theme(panel.background = element_blank(), 
+        axis.line = element_line(colour = "black"), 
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        axis.text = element_text(size = 14), 
+        axis.title = element_text(size = 16),
+        text = element_text(family = "Arial"))
+
+ggsave("/external/rprshnas01/netdata_kcni/stlab/Nuo/SFARI/out_m2/Graphs/protein_both_ns.png", both_plot, width = 6, height = 4)
+```
+
+#Obtaining gene list of L events
+```{r}
+prot_tpm_timepoint %>% 
+  mutate (DPPAU = d0 - d30) %>%   
+  filter (DPPAU > 20) %>% #looking for high differences in UTR length over time  
+  arrange (desc(DPPAU))
+```
+
+#Plotting: Single gene graphs 
+```{r}
+library(gridExtra)
+library(viridis)
+gene_list <- list("DNAJC15",  "MED16" ,   "CASK"    , "EPB41L1",  "NME6"   ,  "PCDHB2"  , "MARK1"   ,  "COA5"  ,   "TRIM13"  , "C17orf75"
+)
+
+plots <- list()
+
+max_y_value <-25  
+
+for (current_gene_name in gene_list) {
+  # Filter the dataset for the current gene
+  filtered_one_gene <- prot_tpm_timepoint %>%
+    filter(GeneSymbol == current_gene_name)
+  
+  # Create the plot for the current gene
+  p <- ggplot(filtered_one_gene, aes(x = neuron, y = mean_prot_count, col = PAU)) +
+    geom_point(size = 4, show.legend = FALSE) +
+    geom_line(aes(group = 1), color = "black") +
+    labs(x = NULL, y = NULL, title = paste(current_gene_name)) +
+    theme_minimal() +
+    scale_color_viridis(name = "100-PPAU") +
+    ylim(0, max_y_value) +  # Set y-axis limits
+    theme(axis.text = element_text(size = 16)) +
+    theme(axis.title = element_text(size = 16)) +
+    theme(plot.title = element_text(size = 22))+
+    theme(text = element_text(family = "Arial")) +
+    theme(legend.location = NULL) 
+  
+  # Save the plot in the list
+  plots[[current_gene_name]] <- p
+}
+
+# Combine individual plots into a single plot
+combined_plot <- do.call(grid.arrange, c(plots, ncol = 5)) 
+
+ggsave( "/external/rprshnas01/netdata_kcni/stlab/Nuo/SFARI/out_m2/Graphs/NOscale_both_10L_prot_time.png", combined_plot, width = 20 , height = 10)
+# Display or save the combined plot
+print(combined_plot)
+```
+
