@@ -28,7 +28,7 @@ Step 5: Visualizing reads using Gviz
 
 Step 6: Quantification of APA using DEXseq 
 
-Step 7: Comparison of QAPA and DEXseq 
+Step 7: Comparison of QAPA and DEXseq (Venn Diagram to identify common genes)
 
 Step 8: Analysis of Proteomic data and comparison with APA events 
 
